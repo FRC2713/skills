@@ -24,6 +24,7 @@ That's it — the skills are now available. To pick up new skills or updates lat
 | Skill | What it does |
 | --- | --- |
 | `/teach-me <topic>` | An adaptive tutor. Calibrates what you already know, then guides you through the topic one step at a time, checking understanding as it goes. Curriculum-aware — it uses the `software_training` lessons as its syllabus. |
+| `/review-my-code` | An interactive, teaching code review for your FRC / WPILib Java. Walks your code with you, surfaces issues worst-first, and guides you to fix them yourself instead of rewriting it. Not the automated branch review (that's `/code-review`). |
 
 ## Repository layout
 
