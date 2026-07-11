@@ -1,0 +1,8 @@
+{
+  "name": "frc2713-skills",
+  "description": "Shared skills for the FRC 2713 software team.",
+  "version": "0.1.0",
+  "author": {
+    "name": "FRC 2713 — Red Hawk Robotics"
+  }
+}
