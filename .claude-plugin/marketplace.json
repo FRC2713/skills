@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Shared Claude Code skills for the FRC 2713 software team.",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "frc2713-skills",
       "source": "./plugins/frc2713-skills",
-      "description": "The team's shared skills: teach-me (adaptive tutor) and review-my-code (interactive FRC code review).",
-      "version": "0.2.0"
+      "description": "The team's shared skills for learning, code review, and guided Hawk app creation.",
+      "version": "0.3.0"
     }
   ]
 }

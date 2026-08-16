@@ -1,0 +1,27 @@
+{
+  "name": "frc2713-skills",
+  "version": "0.3.0",
+  "description": "Shared skills for the FRC 2713 software team.",
+  "author": {
+    "name": "FRC 2713 — Red Hawk Robotics"
+  },
+  "homepage": "https://github.com/FRC2713/skills",
+  "repository": "https://github.com/FRC2713/skills",
+  "keywords": ["frc2713", "education", "hawk-apps"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "FRC 2713 Skills",
+    "shortDescription": "Learn, review code, and create Hawk apps.",
+    "longDescription": "Guided skills for FRC 2713 students and non-programmers, including adaptive teaching, educational code review, and safe Hawk app creation.",
+    "developerName": "FRC 2713 — Red Hawk Robotics",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/FRC2713/skills",
+    "defaultPrompt": [
+      "Use $create-hawk-app to help me create my first Hawk app.",
+      "Use $teach-me to teach me a programming concept.",
+      "Use $review-my-code to review my robot code with me."
+    ],
+    "brandColor": "#BD0029"
+  }
+}
