@@ -10,7 +10,11 @@ Read only the section matching the detected environment. Prefer already-installe
 - You cannot answer a privilege prompt. `sudo` needs a real terminal to read a password, and a Windows administrator prompt needs a click on a dialog you cannot see; neither your shell nor an in-session `!` prompt can supply either. Hand the exact command to the user for their own terminal window, tell them to come back when it finishes, and verify the result yourself.
 - Use browser-based GitHub authentication. Never ask for a token or run a command that prints one.
 - After an installer or profile edit changes PATH, your own shell does not see it. Record the absolute `bin` directory and prefix later commands with it — on Windows, prepend it to `$env:Path` for the session.
-- To confirm what a *new* terminal window would see, start an interactive shell: `bash -ic` or `zsh -ic`, never `bash -lc`. Ubuntu's `.bashrc` returns early for non-interactive shells, so a login shell reports failure for a change that actually worked. On Windows, read the user-scope value back with `[Environment]::GetEnvironmentVariable('Path','User')`.
+- A newly installed tool has to be visible to **two** different shells, and they can disagree. Check both:
+  - `bash -ic 'command -v node'` (or `zsh -ic`) — what a *new terminal window* the user opens will see.
+  - `bash -c 'command -v node'` — what *your own tool calls* will see, and what a coding agent in this folder will see in later sessions.
+
+  Ubuntu's `.bashrc` returns early for non-interactive shells, so anything appended to the bottom of it — which is where `nvm` and most installers write — satisfies the first check and fails the second. When that happens you must prefix every remaining command with the tool's absolute `bin` directory for the rest of the session, and the next session has the same problem. Prefer an arrangement where both checks pass; see "Putting it on PATH" below. On Windows, read the user-scope value back with `[Environment]::GetEnvironmentVariable('Path','User')`.
 - Test access to the actual private template, not generic internet connectivity.
 
 Official sources:
@@ -19,6 +23,16 @@ Official sources:
 - Git: <https://git-scm.com/downloads>
 - GitHub CLI: <https://cli.github.com/>
 - GitHub authentication: <https://cli.github.com/manual/gh_auth_login>
+
+## Choosing how to install Node
+
+Decide in this order, and do not offer the user a menu that inverts it:
+
+1. **A version manager they already have configured** — `nvm`, `fnm`, `asdf`, `mise`. Use it after approval.
+2. **The no-password install below.** This is the default choice when nothing is already set up.
+3. **The distribution's or platform's package manager**, but only after checking the version it actually offers.
+
+Nothing else. In particular, do not bootstrap a version manager the user does not already have by piping a script from the internet into a shell — `curl … | bash` is exactly the pattern SKILL.md forbids, and installing `nvm` that way also appends to the bottom of `~/.bashrc`, below the early return for non-interactive shells, which leaves Node invisible to your own commands and to every later session in that folder. When you present this choice, present option 2 as the recommendation.
 
 ## Installing without a password
 
@@ -38,10 +52,19 @@ Map `uname -m` or `PROCESSOR_ARCHITECTURE` to Node's own names: `x86_64` and `AM
 
 **GitHub CLI.** Read <https://api.github.com/repos/cli/cli/releases/latest> and take the archive for the platform and architecture, plus the `gh_<version>_checksums.txt` beside it. Linux builds are `gh_<version>_linux_<arch>.tar.gz`; macOS and Windows builds are `.zip` (`gh_<version>_macOS_arm64.zip`, `gh_<version>_windows_amd64.zip`). Verify, then place only the `gh` binary: into `~/.local/bin` on macOS, Linux, and WSL2, or `%LOCALAPPDATA%\gh\bin` on Windows.
 
-**Putting it on PATH.** This is a change to the user's environment, so show the exact edit and ask first.
+**Putting it on PATH.** The best outcome is not having to. `~/.local/bin` is already on PATH on macOS and on most Linux and WSL2 systems, including through the non-interactive shells that profile edits miss.
 
-- macOS and Linux: append one `export PATH=...` line to the shell's own profile — `~/.zshrc` for macOS's default zsh, `~/.bashrc` for most Linux and WSL2. Read the file first, back it up, then append. Confirm with `zsh -ic` or `bash -ic`.
-- `~/.local/bin` is often already on PATH. Check before proposing a change for the GitHub CLI; frequently none is needed.
+- **Preferred, and no profile edit at all:** after unpacking Node into `~/.local/node`, symlink its three entry points into `~/.local/bin`:
+
+  ```sh
+  ln -s ~/.local/node/bin/node ~/.local/bin/node
+  ln -s ~/.local/node/bin/npm  ~/.local/bin/npm
+  ln -s ~/.local/node/bin/npx  ~/.local/bin/npx
+  ```
+
+  Confirm `~/.local/bin` is genuinely on PATH first, and confirm afterwards with **both** shells from the rule above. This is why the GitHub CLI install — a single binary dropped into `~/.local/bin` — needs no profile edit and causes no trouble later.
+- Only if `~/.local/bin` is not on PATH: append one `export PATH=...` line to the shell's own profile — `~/.zshrc` for macOS's default zsh, `~/.bashrc` for most Linux and WSL2. Read the file first, back it up, then append. Tell the user plainly that a `.bashrc` edit is invisible to non-interactive shells, so tools running in this folder will still need the absolute path.
+- This is a change to the user's environment either way, so show the exact edit and ask first.
 - Windows: set the user-scope variable, which needs no administrator rights, and show this exact command before running it:
 
   ```powershell
@@ -94,13 +117,21 @@ A system-wide install through a vendor repository is a reasonable second choice 
 
 Stay entirely inside WSL2: Linux Git, Linux Node/npm, Linux GitHub CLI, and a destination beneath the Linux home directory such as `~/Projects`. Do not mix Windows executables with a WSL2 repository and do not place `node_modules` beneath `/mnt/c`, `/mnt/d`, or another mounted Windows drive.
 
-Windows installations leak onto the Linux PATH, so `node`, `npm`, or `gh` may appear to exist while actually pointing at a Windows program under `/mnt/<drive>/`. `scripts/preflight.sh` flags this. The failure is confusing on its own — Windows npm called from Linux reports `WSL 1 is not supported`, which has nothing to do with the real problem — so name it plainly: the terminal is finding the Windows copy, a Linux copy is needed, and the Windows one will be left alone.
+Windows installations leak onto the Linux PATH, so `node`, `npm`, or `gh` may appear to exist while actually pointing at a Windows program under `/mnt/<drive>/`. `scripts/preflight.sh` flags this. The failure is confusing on its own — Windows npm called from Linux reports `WSL 1 is not supported. Please upgrade to WSL 2 or above.` even on a machine that is genuinely running WSL 2, which has nothing to do with the real problem — so name it plainly the first time it appears: the terminal is finding the Windows copy, a Linux copy is needed, and the Windows one will be left alone. Expect that message to surface again during installs; it stays harmless.
 
 Installing or changing WSL itself is out of scope. Use the Linux section for the detected distribution.
 
 ## GitHub access
 
-The template is private. The GitHub CLI is therefore required for every path through this skill, including local-only: without it the template cannot be downloaded at all. Say that plainly rather than presenting sign-in as optional.
+The template is public, so downloading it needs Git and nothing else — no GitHub account, no GitHub
+CLI, no sign-in. Everything in this section applies **only** when the user has chosen to save their
+own app on GitHub. Do not install the GitHub CLI, and do not raise sign-in at all, for a user who
+said no.
+
+If preflight reports that the template is reachable only with a saved GitHub sign-in, it has been
+made private again: a maintainer needs to make it public. Anyone on this computer can still proceed
+because their credentials are already stored, but a student on a fresh machine could not, so say so
+rather than letting it pass silently.
 
 Check without exposing credentials:
 
@@ -111,7 +142,7 @@ gh api repos/FRC2713/hawk-app-template --jq '{name,private,is_template,default_b
 
 Pipe any command that may print a token through that redaction, every time.
 
-If sign-in succeeds but the template still returns `Not Found`, the account is authenticated and simply lacks access. That is a dead end you cannot repair: tell the user a mentor or team lead must add them to the FRC2713 organization or share the repository with them, and stop.
+If sign-in succeeds but the template still returns `Not Found`, the account is authenticated and simply lacks access — which should only happen if the repository was made private again. Tell the user a mentor or team lead must make it public, or add them to the FRC2713 organization, and stop. The this-computer-only path does not need any of this and is worth offering first.
 
 If authentication is missing, explain that a browser window will connect the GitHub account, ask permission, then use:
 

@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Shared Claude Code skills for the FRC 2713 software team.",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "plugins": [
     {
       "name": "frc2713-skills",
       "source": "./plugins/frc2713-skills",
       "description": "The team's shared skills for learning, code review, and guided Hawk app creation.",
-      "version": "0.4.0"
+      "version": "0.5.0"
     }
   ]
 }

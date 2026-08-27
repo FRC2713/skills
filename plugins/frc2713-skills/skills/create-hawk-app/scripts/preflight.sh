@@ -21,8 +21,13 @@ TEMPLATE_REPO="FRC2713/hawk-app-template"
 DESTINATION=""
 SKIP_NETWORK=0
 
+# Whether the user has chosen to save their app on GitHub. The template itself
+# is public, so an app that never leaves this computer needs no GitHub account
+# and no GitHub CLI at all -- "no" and "unknown" must not block the run.
+GITHUB=no
+
 usage() {
-  echo "Usage: sh preflight.sh --destination <path> [--skip-network]" >&2
+  echo "Usage: sh preflight.sh --destination <path> [--github yes|no|unknown] [--skip-network]" >&2
 }
 
 while [ $# -gt 0 ]; do
@@ -30,6 +35,13 @@ while [ $# -gt 0 ]; do
     --destination)
       if [ $# -lt 2 ]; then usage; exit 2; fi
       DESTINATION="$2"; shift 2 ;;
+    --github)
+      if [ $# -lt 2 ]; then usage; exit 2; fi
+      case "$2" in
+        yes|no|unknown) GITHUB="$2" ;;
+        *) echo "--github must be yes, no, or unknown" >&2; exit 2 ;;
+      esac
+      shift 2 ;;
     --skip-network) SKIP_NETWORK=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
@@ -51,6 +63,16 @@ TMP=$(mktemp "${TMPDIR:-/tmp}/hawk-preflight.XXXXXX") || exit 2
 trap 'rm -f "$TMP"' EXIT INT TERM
 
 add() { printf '%s|%s|%s\n' "$1" "$2" "$3" >>"$TMP"; }
+
+# Can this repository be read with no account at all? Ambient credentials would
+# otherwise make a private repository look reachable to everyone.
+anonymous_ls_remote() {
+  GIT_TERMINAL_PROMPT=0 \
+  GIT_ASKPASS=true \
+  GIT_CONFIG_GLOBAL=/dev/null \
+  GIT_CONFIG_SYSTEM=/dev/null \
+    git ls-remote --exit-code -h "$1" >/dev/null 2>&1
+}
 
 # A path under /mnt/<drive>/ in WSL is a Windows program, not a Linux one.
 is_windows_path() {
@@ -141,34 +163,58 @@ fi
 
 # --- github cli ----------------------------------------------------------
 
+# The GitHub CLI matters only when the user wants their app saved on GitHub.
+# Downloading the template needs plain git and nothing else, so when GitHub was
+# declined -- or has not been asked about yet -- a missing gh is a note.
+if [ "$GITHUB" = yes ]; then GH_LEVEL=attention; else GH_LEVEL=note; fi
+
 GH_AUTHENTICATED=0
 GH_BIN=$(command -v gh 2>/dev/null || true)
 if [ -z "$GH_BIN" ]; then
-  add attention "GitHub CLI" "Not installed; required, because the template is a private repository"
+  if [ "$GITHUB" = yes ]; then
+    add attention "GitHub CLI" "Not installed; needed to save your app on GitHub"
+  else
+    add note "GitHub CLI" "Not installed; only needed if you choose to save your app on GitHub"
+  fi
 elif [ "$IS_WSL" -eq 1 ] && is_windows_path "$GH_BIN"; then
-  add attention "GitHub CLI" "Only Windows' copy is on PATH ($GH_BIN); install it inside Linux"
+  add "$GH_LEVEL" "GitHub CLI" "Only Windows' copy is on PATH ($GH_BIN); install it inside Linux"
 else
   if gh auth status --hostname github.com >/dev/null 2>&1; then
     GH_AUTHENTICATED=1
     add ready "GitHub" "Signed in ($(gh --version 2>/dev/null | head -1))"
-  else
+  elif [ "$GITHUB" = yes ]; then
     add attention "GitHub" "GitHub CLI is installed but not signed in"
+  else
+    add note "GitHub" "GitHub CLI is installed but not signed in; only needed to save your app on GitHub"
   fi
 fi
 
 # --- template access -----------------------------------------------------
 
+# Two different questions. Downloading the template only needs an anonymous
+# git read; being *marked as a template* matters solely to `gh repo create
+# --template`, which is the GitHub-backed path.
 if [ "$SKIP_NETWORK" -eq 1 ]; then
   add ready "Template access" "Skipped by request"
-elif [ "$GH_AUTHENTICATED" -eq 0 ]; then
-  add attention "Template access" "Cannot be checked until the GitHub CLI is signed in"
-else
+elif [ "$GITHUB" = yes ] && [ "$GH_AUTHENTICATED" -eq 1 ]; then
   IS_TEMPLATE=$(gh api "repos/$TEMPLATE_REPO" --jq '.is_template' 2>/dev/null || true)
   case "$IS_TEMPLATE" in
     true)  add ready "Template access" "$TEMPLATE_REPO is reachable and marked as a template" ;;
     false) add attention "Template access" "$TEMPLATE_REPO is reachable but is not marked as a template; tell a maintainer" ;;
     *)     add attention "Template access" "This GitHub account cannot reach $TEMPLATE_REPO; access must be granted by a maintainer" ;;
   esac
+elif command -v git >/dev/null 2>&1; then
+  if anonymous_ls_remote "https://github.com/$TEMPLATE_REPO"; then
+    add ready "Template access" "$TEMPLATE_REPO can be downloaded; no GitHub account needed"
+  elif git ls-remote --exit-code -h "https://github.com/$TEMPLATE_REPO" >/dev/null 2>&1; then
+    # Works here only because this computer already holds GitHub credentials.
+    # A student on a fresh machine would be stuck, so do not report it as fine.
+    add attention "Template access" "$TEMPLATE_REPO is reachable only with your saved GitHub sign-in, so it is still private; a computer without a GitHub account could not download it. Tell a maintainer it needs to be public"
+  else
+    add attention "Template access" "$TEMPLATE_REPO could not be reached; check the internet connection, or sign in if the repository is still private"
+  fi
+else
+  add attention "Template access" "Cannot be checked until Git is installed"
 fi
 
 # --- destination ---------------------------------------------------------
@@ -212,16 +258,25 @@ fi
 # --- report --------------------------------------------------------------
 
 printf 'Hawk app preflight for %s\n\n' "$DESTINATION"
-for LEVEL in ready attention; do
+for LEVEL in ready note attention; do
   if ! grep -q "^$LEVEL|" "$TMP"; then continue; fi
-  if [ "$LEVEL" = ready ]; then printf 'Ready:\n'; else printf 'Needs attention:\n'; fi
+  case "$LEVEL" in
+    ready) printf 'Ready:\n' ;;
+    note) printf 'Worth knowing:\n' ;;
+    attention) printf 'Needs attention:\n' ;;
+  esac
   while IFS='|' read -r level check detail; do
     [ "$level" = "$LEVEL" ] || continue
-    if [ "$LEVEL" = ready ]; then printf '  \342\234\223 %s: %s\n' "$check" "$detail"
-    else printf '  ! %s: %s\n' "$check" "$detail"; fi
+    case "$LEVEL" in
+      ready) printf '  \342\234\223 %s: %s\n' "$check" "$detail" ;;
+      note) printf '  - %s: %s\n' "$check" "$detail" ;;
+      attention) printf '  ! %s: %s\n' "$check" "$detail" ;;
+    esac
   done <"$TMP"
   printf '\n'
 done
 
+# Only "attention" blocks. A note is information the guide should pass on, not
+# a reason to stop.
 if grep -q '^attention|' "$TMP"; then exit 1; fi
 exit 0

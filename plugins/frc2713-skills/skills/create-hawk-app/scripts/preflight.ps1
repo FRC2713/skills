@@ -16,6 +16,12 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $Destination,
 
+    # Whether the user has chosen to save their app on GitHub. The template
+    # itself is public, so an app that never leaves this computer needs no
+    # GitHub account and no GitHub CLI -- 'no' and 'unknown' must not block.
+    [ValidateSet('yes', 'no', 'unknown')]
+    [string] $GitHub = 'no',
+
     [switch] $SkipNetwork
 )
 
@@ -38,6 +44,30 @@ function Get-ToolPath {
         Select-Object -First 1
     if ($command) { return $command.Source }
     return $null
+}
+
+# Can this repository be read with no account at all? Ambient credentials would
+# otherwise make a private repository look reachable to everyone.
+function Invoke-AnonymousLsRemote {
+    param([string] $GitExe, [string] $Url)
+    $saved = @{}
+    foreach ($name in @('GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM')) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+    }
+    try {
+        $env:GIT_TERMINAL_PROMPT = '0'
+        $env:GIT_ASKPASS = 'echo'
+        # A path that does not exist reads as an empty config on every platform,
+        # which /dev/null and NUL do not both manage to do.
+        $absent = Join-Path ([System.IO.Path]::GetTempPath()) 'hawk-preflight-no-such-gitconfig'
+        $env:GIT_CONFIG_GLOBAL = $absent
+        $env:GIT_CONFIG_SYSTEM = $absent
+        return (Invoke-Tool $GitExe @('ls-remote', '--exit-code', '-h', $Url)).Ok
+    } finally {
+        foreach ($name in $saved.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $saved[$name])
+        }
+    }
 }
 
 function Invoke-Tool {
@@ -129,28 +159,38 @@ if (-not $npmPath) {
 
 # --- github cli ----------------------------------------------------------
 
+# The GitHub CLI matters only when the user wants their app saved on GitHub.
+# Downloading the template needs plain git and nothing else.
 $ghAuthenticated = $false
 $ghPath = Get-ToolPath 'gh'
 if (-not $ghPath) {
-    Add-Result 'attention' 'GitHub CLI' 'Not installed; required, because the template is a private repository'
+    if ($GitHub -eq 'yes') {
+        Add-Result 'attention' 'GitHub CLI' 'Not installed; needed to save your app on GitHub'
+    } else {
+        Add-Result 'note' 'GitHub CLI' 'Not installed; only needed if you choose to save your app on GitHub'
+    }
 } else {
     $auth = Invoke-Tool $ghPath @('auth', 'status', '--hostname', 'github.com')
     if ($auth.Ok) {
         $ghAuthenticated = $true
         $ghVersion = Invoke-Tool $ghPath @('--version')
         Add-Result 'ready' 'GitHub' "Signed in ($(($ghVersion.Output -split "`n")[0].Trim()))"
-    } else {
+    } elseif ($GitHub -eq 'yes') {
         Add-Result 'attention' 'GitHub' 'GitHub CLI is installed but not signed in'
+    } else {
+        Add-Result 'note' 'GitHub' 'GitHub CLI is installed but not signed in; only needed to save your app on GitHub'
     }
 }
 
 # --- template access -----------------------------------------------------
 
+# Two different questions. Downloading the template only needs an anonymous git
+# read; being *marked as a template* matters solely to `gh repo create
+# --template`, which is the GitHub-backed path.
+$templateUrl = "https://github.com/$TemplateRepo"
 if ($SkipNetwork) {
     Add-Result 'ready' 'Template access' 'Skipped by request'
-} elseif (-not $ghAuthenticated) {
-    Add-Result 'attention' 'Template access' 'Cannot be checked until the GitHub CLI is signed in'
-} else {
+} elseif ($GitHub -eq 'yes' -and $ghAuthenticated) {
     $template = Invoke-Tool $ghPath @('api', "repos/$TemplateRepo", '--jq', '.is_template')
     $isTemplate = $template.Output.Trim()
     if ($template.Ok -and $isTemplate -eq 'true') {
@@ -159,6 +199,19 @@ if ($SkipNetwork) {
         Add-Result 'attention' 'Template access' "$TemplateRepo is reachable but is not marked as a template; tell a maintainer"
     } else {
         Add-Result 'attention' 'Template access' "This GitHub account cannot reach $TemplateRepo; access must be granted by a maintainer"
+    }
+} else {
+    $gitPath = Get-ToolPath 'git'
+    if (-not $gitPath) {
+        Add-Result 'attention' 'Template access' 'Cannot be checked until Git is installed'
+    } elseif ((Invoke-AnonymousLsRemote $gitPath $templateUrl)) {
+        Add-Result 'ready' 'Template access' "$TemplateRepo can be downloaded; no GitHub account needed"
+    } elseif ((Invoke-Tool $gitPath @('ls-remote', '--exit-code', '-h', $templateUrl)).Ok) {
+        # Works here only because this computer already holds GitHub
+        # credentials. A student on a fresh machine would be stuck.
+        Add-Result 'attention' 'Template access' "$TemplateRepo is reachable only with your saved GitHub sign-in, so it is still private; a computer without a GitHub account could not download it. Tell a maintainer it needs to be public"
+    } else {
+        Add-Result 'attention' 'Template access' "$TemplateRepo could not be reached; check the internet connection, or sign in if the repository is still private"
     }
 }
 
@@ -216,12 +269,20 @@ foreach ($oneDrive in @($env:OneDrive, $env:OneDriveCommercial, $env:OneDriveCon
 
 Write-Output "Hawk app preflight for $Destination"
 Write-Output ''
-foreach ($level in @('ready', 'attention')) {
+foreach ($level in @('ready', 'note', 'attention')) {
     $items = @($results | Where-Object { $_.Level -eq $level })
     if ($items.Count -eq 0) { continue }
-    if ($level -eq 'ready') { Write-Output 'Ready:' } else { Write-Output 'Needs attention:' }
+    switch ($level) {
+        'ready'     { Write-Output 'Ready:' }
+        'note'      { Write-Output 'Worth knowing:' }
+        'attention' { Write-Output 'Needs attention:' }
+    }
     foreach ($item in $items) {
-        if ($level -eq 'ready') { $marker = [char] 0x2713 } else { $marker = '!' }
+        switch ($level) {
+            'ready'     { $marker = [char] 0x2713 }
+            'note'      { $marker = '-' }
+            'attention' { $marker = '!' }
+        }
         Write-Output "  $marker $($item.Check): $($item.Detail)"
     }
     Write-Output ''
