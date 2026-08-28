@@ -1,0 +1,20 @@
+{
+  "name": "frc2713",
+  "interface": {
+    "displayName": "FRC 2713"
+  },
+  "plugins": [
+    {
+      "name": "frc2713-skills",
+      "source": {
+        "source": "local",
+        "path": "./plugins/frc2713-skills"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Hawk App"
+  short_description: "Create a Hawk app with guided setup"
+  default_prompt: "Use $create-hawk-app to guide me through creating my first Hawk application."
